@@ -1,10 +1,11 @@
 import React, { useCallback } from 'react';
-import { Icon, ToggleSwitch, RadioButton, Box, Flex, Margins } from '@rocket.chat/fuselage';
+import { Icon, ToggleSwitch, RadioButton, Box, Flex, Margins, CheckBox, Divider } from '@rocket.chat/fuselage';
 
 
 import { useTranslation } from '../contexts/TranslationContext';
 import { useUserPreference } from '../contexts/UserContext';
 import { useMethod } from '../contexts/ServerContext';
+import { useSetting } from '../contexts/SettingsContext';
 
 function SortListItem({ text, icon, input }) {
 	return <Flex.Container>
@@ -33,8 +34,10 @@ const style = {
 export function SortList() {
 	return <>
 		<div className='rc-popover__column'>
-			<SortModeList/>
 			<ViewModeList/>
+			<Divider/>
+			<SortModeList/>
+			<Divider/>
 			<GroupingList/>
 		</div>
 	</>;
@@ -47,10 +50,10 @@ function SortModeList() {
 	const saveUserPreferences = useMethod('saveUserPreferences');
 	const sidebarSortBy = useUserPreference('sidebarSortby', 'activity');
 
-	const handleChange = (value) => () => saveUserPreferences({ sidebarSortby: value });
+	const useHandleChange = (value) => useCallback(() => saveUserPreferences({ sidebarSortby: value }), [value]);
 
-	const setToAlphabetical = useCallback(handleChange('alphabetical'), []);
-	const setToActivity = useCallback(handleChange('activity'), []);
+	const setToAlphabetical = useHandleChange('alphabetical');
+	const setToActivity = useHandleChange('activity');
 
 	return <>
 		<Margins block='x8'>
@@ -71,16 +74,16 @@ function ViewModeList() {
 
 	const saveUserPreferences = useMethod('saveUserPreferences');
 
-	const handleChange = (value) => () => saveUserPreferences({ sidebarViewMode: value });
+	const useHandleChange = (value) => useCallback(() => saveUserPreferences({ sidebarViewMode: value }), [value]);
 
 	const sidebarViewMode = useUserPreference('sidebarViewMode', 'extended');
 	const sidebarHideAvatar = useUserPreference('sidebarHideAvatar', false);
 
-	const setToExtended = useCallback(handleChange('extended'), []);
-	const setToMedium = useCallback(handleChange('medium'), []);
-	const setToCondensed = useCallback(handleChange('condensed'), []);
+	const setToExtended = useHandleChange('extended');
+	const setToMedium = useHandleChange('medium');
+	const setToCondensed = useHandleChange('condensed');
 
-	const handleChangeSidebarHideAvatar = useCallback(() => saveUserPreferences({ sidebarHideAvatar: !sidebarHideAvatar }), [sidebarHideAvatar]);
+	const handleChangeSidebarHideAvatar = useCallback(() => saveUserPreferences({ sidebarHideAvatar: !sidebarHideAvatar }), [saveUserPreferences, sidebarHideAvatar]);
 
 	return <>
 		<Margins block='x8'>
@@ -99,6 +102,7 @@ function ViewModeList() {
 
 
 function GroupingList() {
+	const isDiscussionEnabled = useSetting('Discussion_enabled');
 	const sidebarShowDiscussion = useUserPreference('sidebarShowDiscussion');
 	const sidebarGroupByType = useUserPreference('sidebarGroupByType');
 	const sidebarShowFavorites = useUserPreference('sidebarShowFavorites');
@@ -106,25 +110,25 @@ function GroupingList() {
 
 	const saveUserPreferences = useMethod('saveUserPreferences');
 
-	const handleChange = (key, value) => () => saveUserPreferences({ [key]: value });
+	const useHandleChange = (key, value) => useCallback(() => saveUserPreferences({ [key]: value }), [key, value]);
 
-	const handleChangeShowDicussion = useCallback(handleChange('sidebarShowDiscussion', !sidebarShowDiscussion), [sidebarShowDiscussion]);
-	const handleChangeGroupByType = useCallback(handleChange('sidebarGroupByType', !sidebarGroupByType), [sidebarGroupByType]);
-	const handleChangeShoFavorite = useCallback(handleChange('sidebarShowFavorites', !sidebarShowFavorites), [sidebarShowFavorites]);
-	const handleChangeShowUnread = useCallback(handleChange('sidebarShowUnread', !sidebarShowUnread), [sidebarShowUnread]);
+	const handleChangeShowDicussion = useHandleChange('sidebarShowDiscussion', !sidebarShowDiscussion);
+	const handleChangeGroupByType = useHandleChange('sidebarGroupByType', !sidebarGroupByType);
+	const handleChangeShoFavorite = useHandleChange('sidebarShowFavorites', !sidebarShowFavorites);
+	const handleChangeShowUnread = useHandleChange('sidebarShowUnread', !sidebarShowUnread);
 
 
 	const t = useTranslation();
 	return <>
 		<Margins block='x8'>
-			<Box is='p' style={style} fontScale='micro'>{t('Grouping')}</Box>
+			<Box is='p' style={style} fontScale='micro'>{t('Group_by')}</Box>
 		</Margins>
 		<ul className='rc-popover__list'>
 			<Margins block='x8'>
-				<SortListItem icon={'discussion'} text={t('Group_discussions')} input={<ToggleSwitch onChange={handleChangeShowDicussion} name='sidebarShowDiscussion' checked={sidebarShowDiscussion} />} />
-				<SortListItem icon={'sort-amount-down'} text={t('Group_by_Type')} input={<ToggleSwitch onChange={handleChangeGroupByType} name='sidebarGroupByType' checked={sidebarGroupByType} />} />
-				<SortListItem icon={'star'} text={t('Group_favorites')} input={<ToggleSwitch onChange={handleChangeShoFavorite} name='sidebarShowFavorites' checked={sidebarShowFavorites} />} />
-				<SortListItem icon={'eye-off'} text={t('Unread_on_top')} input={<ToggleSwitch onChange={handleChangeShowUnread} name='sidebarShowUnread' checked={sidebarShowUnread} />} />
+				{isDiscussionEnabled && <SortListItem icon={'discussion'} text={t('Discussions')} input={<CheckBox onChange={handleChangeShowDicussion} name='sidebarShowDiscussion' checked={sidebarShowDiscussion} />} />}
+				<SortListItem icon={'group-by-type'} text={t('Type')} input={<CheckBox onChange={handleChangeGroupByType} name='sidebarGroupByType' checked={sidebarGroupByType} />} />
+				<SortListItem icon={'star'} text={t('Favorites')} input={<CheckBox onChange={handleChangeShoFavorite} name='sidebarShowFavorites' checked={sidebarShowFavorites} />} />
+				<SortListItem icon={'eye-off'} text={t('Unread_on_top')} input={<CheckBox onChange={handleChangeShowUnread} name='sidebarShowUnread' checked={sidebarShowUnread} />} />
 			</Margins>
 		</ul>
 	</>;
