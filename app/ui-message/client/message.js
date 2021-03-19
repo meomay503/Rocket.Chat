@@ -1,5 +1,4 @@
 import _ from 'underscore';
-import s from 'underscore.string';
 import { Meteor } from 'meteor/meteor';
 import { Tracker } from 'meteor/tracker';
 import { Template } from 'meteor/templating';
@@ -9,16 +8,20 @@ import { TAPi18n } from 'meteor/rocketchat:tap-i18n';
 import { timeAgo, formatDateAndTime } from '../../lib/client/lib/formatDate';
 import { DateFormat } from '../../lib/client';
 import { normalizeThreadTitle } from '../../threads/client/lib/normalizeThreadTitle';
-import { renderMessageBody, MessageTypes, MessageAction, call } from '../../ui-utils/client';
-import { RoomRoles, UserRoles, Roles, Messages } from '../../models/client';
-import { callbacks } from '../../callbacks/client';
+import { MessageTypes, MessageAction } from '../../ui-utils/client';
+import { RoomRoles, UserRoles, Roles } from '../../models/client';
 import { Markdown } from '../../markdown/client';
 import { t, roomTypes } from '../../utils';
-import { upsertMessage } from '../../ui-utils/client/lib/RoomHistoryManager';
-import './message.html';
 import './messageThread';
 import { AutoTranslate } from '../../autotranslate/client';
+import { escapeHTML } from '../../../lib/escapeHTML';
+import { renderMentions } from '../../mentions/client/client';
+import { renderMessageBody } from '../../../client/lib/renderMessageBody';
+import { createTemplateForComponent } from '../../../client/reactAdapters';
 
+import './message.html';
+
+createTemplateForComponent('messageLocation', () => import('../../../client/views/location/MessageLocation'));
 
 const renderBody = (msg, settings) => {
 	const searchedText = msg.searchedText ? msg.searchedText : '';
@@ -30,11 +33,11 @@ const renderBody = (msg, settings) => {
 	} else if (messageType.template) {
 		// render template
 	} else if (messageType.message) {
-		msg.msg = s.escapeHTML(msg.msg);
+		msg.msg = escapeHTML(msg.msg);
 		msg = TAPi18n.__(messageType.message, { ...typeof messageType.data === 'function' && messageType.data(msg) });
 	} else if (msg.u && msg.u.username === settings.Chatops_Username) {
 		msg.html = msg.msg;
-		msg = callbacks.run('renderMentions', msg);
+		msg = renderMentions(msg);
 		msg = msg.html;
 	} else {
 		msg = renderMessageBody(msg);
@@ -51,40 +54,20 @@ const renderBody = (msg, settings) => {
 	return msg;
 };
 
-const findParentMessage = (() => {
-	const waiting = [];
-	const uid = Tracker.nonreactive(() => Meteor.userId());
-	const getMessages = _.debounce(async function() {
-		const _tmp = [...waiting];
-		waiting.length = 0;
-		(await call('getMessages', _tmp)).map((msg) => Messages.findOne({ _id: msg._id }) || upsertMessage({ msg: { ...msg, _hidden: true }, uid }));
-	}, 500);
-
-
-	return (tmid) => {
-		if (waiting.indexOf(tmid) > -1) {
-			return;
-		}
-		const message = Messages.findOne({ _id: tmid });
-		if (!message) {
-			waiting.push(tmid);
-			return getMessages();
-		}
-		return Messages.update(
-			{ tmid, repliesCount: { $exists: 0 } },
-			{
-				$set: {
-					following: message.replies && message.replies.indexOf(uid) > -1,
-					threadMsg: normalizeThreadTitle(message),
-					repliesCount: message.tcount,
-				},
-			},
-			{ multi: true },
-		);
-	};
-})();
-
 Template.message.helpers({
+	unread() {
+		const { msg, subscription } = this;
+		return subscription?.tunread?.includes(msg._id);
+	},
+	mention() {
+		const { msg, subscription } = this;
+		return subscription.tunreadUser?.includes(msg._id);
+	},
+
+	all() {
+		const { msg, subscription } = this;
+		return subscription.tunreadGroup?.includes(msg._id);
+	},
 	following() {
 		const { msg, u } = this;
 		return msg.replies && msg.replies.indexOf(u._id) > -1;
@@ -130,6 +113,10 @@ Template.message.helpers({
 		const { msg } = this;
 		return msg.bot && 'bot';
 	},
+	hasAttachments() {
+		const { msg } = this;
+		return msg.attachments?.length;
+	},
 	roleTags() {
 		const { msg, hideRoles, settings } = this;
 		if (settings.hideRoles || hideRoles) {
@@ -172,6 +159,13 @@ Template.message.helpers({
 			return msg.avatar.replace(/^@/, '');
 		}
 	},
+	avatarFromMessage() {
+		const { msg } = this;
+		if (msg && msg.avatar) {
+			return encodeURI(msg.avatar);
+		}
+		return '';
+	},
 	getStatus() {
 		const { msg } = this;
 		return Session.get(`user_${ msg.u.username }_status_text`);
@@ -191,7 +185,7 @@ Template.message.helpers({
 		return msg.alias || (settings.UI_Use_Real_Name && msg.u && msg.u.name);
 	},
 	own() {
-		const { msg, u } = this;
+		const { msg, u = {} } = this;
 		if (msg.u && msg.u._id === u._id) {
 			return 'own';
 		}
@@ -242,25 +236,6 @@ Template.message.helpers({
 			return 'system';
 		}
 	},
-	unread() {
-		const { msg, subscription } = this;
-		if (!subscription?.tunread?.includes(msg._id)) {
-			return false;
-		}
-
-		const badgeClass = (() => {
-			if (subscription.tunreadUser?.includes(msg._id)) {
-				return 'badge--user-mentions';
-			}
-			if (subscription.tunreadGroup?.includes(msg._id)) {
-				return 'badge--group-mentions';
-			}
-		})();
-
-		return {
-			class: badgeClass,
-		};
-	},
 	showTranslated() {
 		const { msg, subscription, settings, u } = this;
 		if (settings.AutoTranslate_Enabled && msg.u && msg.u._id !== u._id && !MessageTypes.isSystemMessage(msg)) {
@@ -271,7 +246,7 @@ Template.message.helpers({
 	translationProvider() {
 		const instance = Template.instance();
 		const { translationProvider } = instance.data.msg;
-		return translationProvider && AutoTranslate.providersMetadata[translationProvider].displayName;
+		return translationProvider && AutoTranslate.providersMetadata[translationProvider]?.displayName;
 	},
 	edited() {
 		const { msg } = this;
@@ -358,6 +333,25 @@ Template.message.helpers({
 			return 'hidden';
 		}
 	},
+	hideAddReaction() {
+		const { room, u, msg, subscription } = this;
+
+		if (!room) {
+			return true;
+		}
+
+		if (!subscription) {
+			return true;
+		}
+
+		if (msg.private) {
+			return true;
+		}
+
+		if (roomTypes.readOnly(room._id, u._id) && !room.reactWhenReadOnly) {
+			return true;
+		}
+	},
 	hideMessageActions() {
 		const { msg } = this;
 
@@ -438,8 +432,8 @@ Template.message.helpers({
 		return !(groupable === true || _groupable === true) && !!(tmid && showreply && (!t || t === 'e2e'));
 	},
 	shouldHideBody() {
-		const { msg: { tmid }, settings: { showreply } } = this;
-		return showreply && tmid;
+		const { msg: { tmid, actionContext }, settings: { showreply }, context } = this;
+		return showreply && tmid && !(actionContext || context);
 	},
 	collapsed() {
 		const { msg: { tmid, collapsed }, settings: { showreply }, shouldCollapseReplies } = this;
@@ -458,16 +452,8 @@ Template.message.helpers({
 	},
 	showStar() {
 		const { msg } = this;
-		return msg.starred && !(msg.actionContext === 'starred' || this.context === 'starred');
+		return msg.starred && msg.starred.length > 0 && msg.starred.find((star) => star._id === Meteor.userId()) && !(msg.actionContext === 'starred' || this.context === 'starred');
 	},
-});
-
-
-Template.message.onCreated(function() {
-	const { msg, shouldCollapseReplies } = Template.currentData();
-	if (shouldCollapseReplies && msg.tmid && !msg.threadMsg) {
-		findParentMessage(msg.tmid);
-	}
 });
 
 const hasTempClass = (node) => node.classList.contains('temp');

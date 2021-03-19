@@ -10,6 +10,7 @@ import { messageContext } from '../../../ui-utils/client/lib/messageContext';
 import { MessageAction, RoomHistoryManager } from '../../../ui-utils';
 import { messageArgs } from '../../../ui-utils/client/lib/messageArgs';
 import { Rooms } from '../../../models/client';
+import { getCommonRoomEvents } from '../../../ui/client/views/app/lib/getCommonRoomEvents';
 
 Meteor.startup(function() {
 	MessageAction.addButton({
@@ -84,6 +85,7 @@ Template.DefaultSearchResultTemplate.onCreated(function() {
 });
 
 Template.DefaultSearchResultTemplate.events({
+	...getCommonRoomEvents(),
 	'change #global-search'(e, t) {
 		t.data.parentPayload.searchAll = e.target.checked;
 		t.data.payload.limit = t.pageSize;
@@ -116,5 +118,15 @@ Template.DefaultSearchResultTemplate.helpers({
 		msg.searchedText = text;
 		return { customClass: 'search', actionContext: 'search', ...msg, groupable: false };
 	},
-	messageContext,
+	messageContext() {
+		const result = messageContext.call(this, { rid: Session.get('openedRoom') });
+		return {
+			...result,
+			settings: {
+				...result.settings,
+				showReplyButton: false,
+				showreply: false,
+			},
+		};
+	},
 });

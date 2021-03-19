@@ -1,96 +1,86 @@
+import { Emitter } from '@rocket.chat/emitter';
 import { Blaze } from 'meteor/blaze';
 import { HTML } from 'meteor/htmljs';
+import { Random } from 'meteor/random';
 import { BlazeLayout } from 'meteor/kadira:blaze-layout';
 import { FlowRouter } from 'meteor/kadira:flow-router';
 import { ReactiveVar } from 'meteor/reactive-var';
 import { Template } from 'meteor/templating';
 import { Tracker } from 'meteor/tracker';
 
-let rootNode;
-let invalidatePortals = () => {};
-const portalsMap = new Map();
+const createPortalsSubscription = () => {
+	const portalsMap = new Map();
+	const emitter = new Emitter();
 
-const mountRoot = async () => {
+	return {
+		getCurrentValue: () => Array.from(portalsMap.values()),
+		subscribe: (callback) => emitter.on('update', callback),
+		delete: (key) => {
+			portalsMap.delete(key);
+			emitter.emit('update');
+		},
+		set: (key, portal) => {
+			portalsMap.set(key, { portal, key: Random.id() });
+			emitter.emit('update');
+		},
+		has: (key) => portalsMap.has(key),
+	};
+};
+
+export const portalsSubscription = createPortalsSubscription();
+
+let rootNode;
+
+export const mountRoot = async () => {
+	if (rootNode) {
+		return;
+	}
+
 	rootNode = document.getElementById('react-root');
 
 	if (!rootNode) {
 		rootNode = document.createElement('div');
 		rootNode.id = 'react-root';
-		document.body.appendChild(rootNode);
+		document.body.insertBefore(rootNode, document.body.firstChild);
 	}
 
 	const [
-		{ Component, Suspense, createElement, lazy, useLayoutEffect, useState },
+		{ Suspense, createElement, lazy },
 		{ render },
 	] = await Promise.all([
 		import('react'),
 		import('react-dom'),
 	]);
 
-	const LazyMeteorProvider = lazy(() => import('./providers/MeteorProvider'));
+	const LazyAppRoot = lazy(() => import('./components/AppRoot'));
 
-	class PortalWrapper extends Component {
-		state = { errored: false }
+	render(createElement(Suspense, { fallback: null }, createElement(LazyAppRoot)), rootNode);
+};
 
-		static getDerivedStateFromError = () => ({ errored: true })
-
-		componentDidCatch = () => {}
-
-		render = () => (this.state.errored ? null : this.props.portal)
-	}
-
-	function AppRoot() {
-		const [portals, setPortals] = useState(() => Tracker.nonreactive(() => Array.from(portalsMap.values())));
-
-		useLayoutEffect(() => {
-			invalidatePortals = () => {
-				setPortals(Array.from(portalsMap.values()));
-			};
-			invalidatePortals();
-
-			return () => {
-				invalidatePortals = () => {};
-			};
-		}, []);
-
-		return createElement(Suspense, { fallback: null },
-			createElement(LazyMeteorProvider, {},
-				...portals.map((portal, key) => createElement(PortalWrapper, { key, portal })),
-			),
-		);
-	}
-
-	render(createElement(AppRoot), rootNode);
+const unregisterPortal = (key) => {
+	portalsSubscription.delete(key);
 };
 
 export const registerPortal = (key, portal) => {
-	if (!rootNode) {
-		mountRoot();
-	}
-
-	portalsMap.set(key, portal);
-	invalidatePortals();
-};
-
-export const unregisterPortal = (key) => {
-	portalsMap.delete(key);
-	invalidatePortals();
+	mountRoot();
+	portalsSubscription.set(key, portal);
+	return () => unregisterPortal(key);
 };
 
 const createLazyElement = async (importFn, propsFn) => {
-	const { createElement, lazy, useEffect, useState } = await import('react');
+	const { createElement, lazy, useEffect, useState, memo, Suspense } = await import('react');
 	const LazyComponent = lazy(importFn);
 
 	if (!propsFn) {
 		return createElement(LazyComponent);
 	}
 
-	const WrappedComponent = () => {
+	const WrappedComponent = memo(() => {
 		const [props, setProps] = useState(() => Tracker.nonreactive(propsFn));
 
 		useEffect(() => {
 			const computation = Tracker.autorun(() => {
-				setProps(propsFn);
+				setProps(propsFn());
 			});
 
 			return () => {
@@ -98,8 +88,8 @@ const createLazyElement = async (importFn, propsFn) => {
 			};
 		}, []);
 
-		return createElement(LazyComponent, props);
-	};
+		return createElement(Suspense, { fallback: null }, createElement(LazyComponent, props));
+	});
 
 	return createElement(WrappedComponent);
 };
@@ -108,6 +98,13 @@ const createLazyPortal = async (importFn, propsFn, node) => {
 	const { createPortal } = await import('react-dom');
 	return createPortal(await createLazyElement(importFn, propsFn), node);
 };
+
+export const createEphemeralPortal = async (importFn, propsFn, node) => {
+	const portal = await createLazyPortal(importFn, propsFn, node);
+	return registerPortal(node, portal);
+};
+
+const unregister = Symbol('unregister');
 
 export const createTemplateForComponent = (
 	name,
@@ -121,7 +118,6 @@ export const createTemplateForComponent = (
 	}
 
 	const template = new Blaze.Template(name, renderContainerView);
-
 	template.onRendered(async function() {
 		const props = new ReactiveVar(this.data);
 		this.autorun(() => {
@@ -134,11 +130,11 @@ export const createTemplateForComponent = (
 			return;
 		}
 
-		registerPortal(this, portal);
+		this[unregister] = await registerPortal(this, portal);
 	});
 
 	template.onDestroyed(function() {
-		unregisterPortal(this);
+		this[unregister]?.();
 	});
 
 	Template[name] = template;
@@ -153,7 +149,7 @@ export const renderRouteComponent = (importFn, {
 } = {}) => {
 	const routeName = FlowRouter.getRouteName();
 
-	if (portalsMap.has(routeName)) {
+	if (portalsSubscription.has(routeName)) {
 		return;
 	}
 

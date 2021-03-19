@@ -17,10 +17,10 @@ export interface IWorkHoursCronJobsWrapper {
 	finish: IWorkHoursCronJobsItem[];
 }
 
-export class LivechatBusinessHoursRaw extends BaseRaw {
+export class LivechatBusinessHoursRaw extends BaseRaw<ILivechatBusinessHour> {
 	public readonly col!: Collection<ILivechatBusinessHour>;
 
-	findOneDefaultBusinessHour(options?: any): Promise<ILivechatBusinessHour> {
+	findOneDefaultBusinessHour(options?: any): Promise<ILivechatBusinessHour | undefined> {
 		return this.findOne({ type: LivechatBusinessHourTypes.DEFAULT }, options);
 	}
 
@@ -52,23 +52,9 @@ export class LivechatBusinessHoursRaw extends BaseRaw {
 	async insertOne(data: Omit<ILivechatBusinessHour, '_id'>): Promise<any> {
 		return this.col.insertOne({
 			_id: new ObjectId().toHexString(),
-			ts: new Date(),
+			...{ ts: new Date() },
 			...data,
 		});
-	}
-
-	async updateOne(_id: string, data: Omit<ILivechatBusinessHour, '_id'>): Promise<any> {
-		const query = {
-			_id,
-		};
-
-		const update = {
-			$set: {
-				...data,
-			},
-		};
-
-		return this.col.updateOne(query, update);
 	}
 
 	// TODO: Remove this function after remove the deprecated method livechat:saveOfficeHours

@@ -5,6 +5,7 @@ import { Base } from './_Base';
 import Messages from './Messages';
 import Subscriptions from './Subscriptions';
 import { getValidRoomName } from '../../../utils';
+import { escapeRegExp } from '../../../../lib/escapeRegExp';
 
 export class Rooms extends Base {
 	constructor(...args) {
@@ -92,6 +93,22 @@ export class Rooms extends Base {
 
 	unsetReactionsInLastMessage(roomId) {
 		return this.update({ _id: roomId }, { $unset: { lastMessage: { reactions: 1 } } });
+	}
+
+	unsetAllImportIds() {
+		const query = {
+			importIds: {
+				$exists: true,
+			},
+		};
+
+		const update = {
+			$unset: {
+				importIds: 1,
+			},
+		};
+
+		return this.update(query, update, { multi: true });
 	}
 
 	updateLastMessageStar(roomId, userId, starred) {
@@ -219,6 +236,31 @@ export class Rooms extends Base {
 		};
 		return this.update(query, update);
 	}
+
+	setAvatarData(_id, origin, etag) {
+		const update = {
+			$set: {
+				avatarOrigin: origin,
+				avatarETag: etag,
+			},
+		};
+
+		return this.update({ _id }, update);
+	}
+
+	unsetAvatarData(_id) {
+		const update = {
+			$set: {
+				avatarETag: Date.now(),
+			},
+			$unset: {
+				avatarOrigin: 1,
+			},
+		};
+
+		return this.update({ _id }, update);
+	}
+
 
 	setSystemMessagesById = function(_id, systemMessages) {
 		const query = {
@@ -389,7 +431,7 @@ export class Rooms extends Base {
 	}
 
 	findByNameContaining(name, discussion = false, options = {}) {
-		const nameRegex = new RegExp(s.trim(s.escapeRegExp(name)), 'i');
+		const nameRegex = new RegExp(s.trim(escapeRegExp(name)), 'i');
 
 		const query = {
 			prid: { $exists: discussion },
@@ -405,7 +447,7 @@ export class Rooms extends Base {
 	}
 
 	findByNameContainingAndTypes(name, types, discussion = false, options = {}) {
-		const nameRegex = new RegExp(s.trim(s.escapeRegExp(name)), 'i');
+		const nameRegex = new RegExp(s.trim(escapeRegExp(name)), 'i');
 
 		const query = {
 			t: {
@@ -463,7 +505,7 @@ export class Rooms extends Base {
 	findByNameAndTypesNotInIds(name, types, ids, options) {
 		const query = {
 			_id: {
-				$ne: ids,
+				$nin: ids,
 			},
 			t: {
 				$in: types,
@@ -476,7 +518,7 @@ export class Rooms extends Base {
 	}
 
 	findChannelAndPrivateByNameStarting(name, options) {
-		const nameRegex = new RegExp(`^${ s.trim(s.escapeRegExp(name)) }`, 'i');
+		const nameRegex = new RegExp(`^${ s.trim(escapeRegExp(name)) }`, 'i');
 
 		const query = {
 			t: {
@@ -540,7 +582,7 @@ export class Rooms extends Base {
 	}
 
 	findByTypeAndNameContaining(type, name, options) {
-		const nameRegex = new RegExp(s.trim(s.escapeRegExp(name)), 'i');
+		const nameRegex = new RegExp(s.trim(escapeRegExp(name)), 'i');
 
 		const query = {
 			name: nameRegex,
@@ -551,7 +593,7 @@ export class Rooms extends Base {
 	}
 
 	findByTypeInIdsAndNameContaining(type, ids, name, options) {
-		const nameRegex = new RegExp(s.trim(s.escapeRegExp(name)), 'i');
+		const nameRegex = new RegExp(s.trim(escapeRegExp(name)), 'i');
 
 		const query = {
 			_id: {
@@ -1118,7 +1160,7 @@ export class Rooms extends Base {
 	// ############################
 	// Discussion
 	findDiscussionParentByNameStarting(name, options) {
-		const nameRegex = new RegExp(`^${ s.trim(s.escapeRegExp(name)) }`, 'i');
+		const nameRegex = new RegExp(`^${ s.trim(escapeRegExp(name)) }`, 'i');
 
 		const query = {
 			t: {
